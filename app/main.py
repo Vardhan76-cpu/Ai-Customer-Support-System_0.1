@@ -4,6 +4,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, HTTPException, UploadFile
 
 from app.config import UPLOAD_DIR, TOP_K
+
 from app.database.database import (
     create_conversation,
     get_conversation,
@@ -12,16 +13,22 @@ from app.database.database import (
     count_messages,
     update_conversation_summary,
 )
+
 from app.ingestion.loader import load_document
 from app.ingestion.cleaner import clean_pages
 from app.ingestion.chunker import chunk_pages
+
 from app.embeddings.embedder import embed_texts
+
 from app.vectorstore.chroma_store import add_chunks
+
 from app.retrieval.search import semantic_search
+
 from app.generation.answer import (
     generate_chat_answer,
     summarize_conversation,
 )
+
 from app.models.schemas import (
     ChatRequest,
     SimulatorTurnRequest,
@@ -33,17 +40,30 @@ from app.models.schemas import (
     KnowledgeRecommendationRequest,
     KnowledgeRecommendationResponse,
 )
+
 from app.agents.simulator import generate_customer_turn
 from app.agents.intent_sentiment import analyze_customer_message
 from app.agents.knowledge import recommend_knowledge
+
+# ---------------------------------------------------------
+# Task 8
+# ---------------------------------------------------------
+
+from app.task8.post_interaction_summary import (
+    build_post_interaction_summary,
+)
+
+from app.task8.performance_analytics import (
+    build_performance_analytics,
+)
 
 
 app = FastAPI(title="Support RAG API")
 
 
-# ---------------------------------------------------------
-# Health check
-# ---------------------------------------------------------
+# =========================================================
+# Health Check
+# =========================================================
 
 @app.get("/")
 def root():
@@ -60,9 +80,9 @@ def health():
     }
 
 
-# ---------------------------------------------------------
-# Upload document
-# ---------------------------------------------------------
+# =========================================================
+# Upload Document
+# =========================================================
 
 @app.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
@@ -88,14 +108,26 @@ async def upload_document(file: UploadFile = File(...)):
                 detail=f"Unsupported file type: {suffix}",
             )
 
+        # -------------------------------------------------
         # Make sure upload directory exists
-        upload_dir = Path(UPLOAD_DIR)
-        upload_dir.mkdir(parents=True, exist_ok=True)
+        # -------------------------------------------------
 
-        # Use a short physical filename.
-        # This avoids Windows MAX_PATH / long filename problems.
+        upload_dir = Path(UPLOAD_DIR)
+        upload_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        # -------------------------------------------------
+        # Create short physical filename
+        # -------------------------------------------------
+
         document_id = uuid4().hex
-        saved_path = upload_dir / f"{document_id}{suffix}"
+
+        saved_path = (
+            upload_dir
+            / f"{document_id}{suffix}"
+        )
 
         file_bytes = await file.read()
 
@@ -107,44 +139,67 @@ async def upload_document(file: UploadFile = File(...)):
 
         saved_path.write_bytes(file_bytes)
 
-        print(f"UPLOAD: saved file -> {saved_path}")
+        print(
+            f"UPLOAD: saved file -> {saved_path}"
+        )
 
         # -------------------------------------------------
         # Load document
         # -------------------------------------------------
 
-        print("UPLOAD STEP 1: loading document")
+        print(
+            "UPLOAD STEP 1: loading document"
+        )
 
-        pages = load_document(saved_path)
+        pages = load_document(
+            saved_path
+        )
 
-        print(f"UPLOAD STEP 2: loaded {len(pages)} pages")
+        print(
+            f"UPLOAD STEP 2: loaded {len(pages)} pages"
+        )
 
         # -------------------------------------------------
         # Clean document
         # -------------------------------------------------
 
-        print("UPLOAD STEP 3: cleaning document")
+        print(
+            "UPLOAD STEP 3: cleaning document"
+        )
 
-        cleaned_pages = clean_pages(pages)
+        cleaned_pages = clean_pages(
+            pages
+        )
 
         print(
-            f"UPLOAD STEP 4: cleaned {len(cleaned_pages)} pages"
+            f"UPLOAD STEP 4: cleaned "
+            f"{len(cleaned_pages)} pages"
         )
 
         # -------------------------------------------------
         # Chunk document
         # -------------------------------------------------
 
-        print("UPLOAD STEP 5: creating chunks")
+        print(
+            "UPLOAD STEP 5: creating chunks"
+        )
 
-        chunks = chunk_pages(cleaned_pages)
+        chunks = chunk_pages(
+            cleaned_pages
+        )
 
-        print(f"UPLOAD STEP 6: created {len(chunks)} chunks")
+        print(
+            f"UPLOAD STEP 6: created "
+            f"{len(chunks)} chunks"
+        )
 
         if not chunks:
             raise HTTPException(
                 status_code=400,
-                detail="No usable text was found in the document.",
+                detail=(
+                    "No usable text was found "
+                    "in the document."
+                ),
             )
 
         # -------------------------------------------------
@@ -152,6 +207,7 @@ async def upload_document(file: UploadFile = File(...)):
         # -------------------------------------------------
 
         for chunk in chunks:
+
             chunk["chunk_id"] = (
                 f"{document_id}_"
                 f"page_{chunk['page_number']}_"
@@ -169,21 +225,31 @@ async def upload_document(file: UploadFile = File(...)):
         # Create embeddings
         # -------------------------------------------------
 
-        print("UPLOAD STEP 7: creating embeddings")
+        print(
+            "UPLOAD STEP 7: creating embeddings"
+        )
 
-        texts = [chunk["text"] for chunk in chunks]
+        texts = [
+            chunk["text"]
+            for chunk in chunks
+        ]
 
-        embeddings = embed_texts(texts)
+        embeddings = embed_texts(
+            texts
+        )
 
         print(
-            f"UPLOAD STEP 8: created {len(embeddings)} embeddings"
+            f"UPLOAD STEP 8: created "
+            f"{len(embeddings)} embeddings"
         )
 
         # -------------------------------------------------
         # Store in Chroma
         # -------------------------------------------------
 
-        print("UPLOAD STEP 9: storing vectors")
+        print(
+            "UPLOAD STEP 9: storing vectors"
+        )
 
         stored_count = add_chunks(
             chunks,
@@ -191,7 +257,8 @@ async def upload_document(file: UploadFile = File(...)):
         )
 
         print(
-            f"UPLOAD STEP 10: stored {stored_count} chunks"
+            f"UPLOAD STEP 10: stored "
+            f"{stored_count} chunks"
         )
 
         return {
@@ -199,14 +266,21 @@ async def upload_document(file: UploadFile = File(...)):
             "document_id": document_id,
             "filename": original_name,
             "chunks": stored_count,
-            "message": "Document uploaded and indexed successfully.",
+            "message": (
+                "Document uploaded and indexed "
+                "successfully."
+            ),
         }
 
     except HTTPException:
         raise
 
     except Exception as exc:
-        print("UPLOAD ERROR:", repr(exc))
+
+        print(
+            "UPLOAD ERROR:",
+            repr(exc),
+        )
 
         raise HTTPException(
             status_code=500,
@@ -217,14 +291,18 @@ async def upload_document(file: UploadFile = File(...)):
         )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Chat
-# ---------------------------------------------------------
+# =========================================================
 
 @app.post("/chat")
 def chat(request: ChatRequest):
+
     try:
-        print("\n================ CHAT REQUEST ================")
+
+        print(
+            "\n================ CHAT REQUEST ================"
+        )
 
         # -------------------------------------------------
         # Validate query
@@ -233,12 +311,15 @@ def chat(request: ChatRequest):
         query = request.query.strip()
 
         if not query:
+
             raise HTTPException(
                 status_code=400,
                 detail="Query cannot be empty.",
             )
 
-        print(f"CHAT QUERY: {query}")
+        print(
+            f"CHAT QUERY: {query}"
+        )
 
         # -------------------------------------------------
         # Create conversation if needed
@@ -247,7 +328,10 @@ def chat(request: ChatRequest):
         conversation_id = request.conversation_id
 
         if conversation_id is None:
-            print("CHAT: creating new conversation")
+
+            print(
+                "CHAT: creating new conversation"
+            )
 
             conversation_id = create_conversation()
 
@@ -260,13 +344,16 @@ def chat(request: ChatRequest):
         # Get conversation
         # -------------------------------------------------
 
-        print("CHAT STEP 1: loading conversation")
+        print(
+            "CHAT STEP 1: loading conversation"
+        )
 
         conversation = get_conversation(
             conversation_id
         )
 
         if conversation is None:
+
             raise HTTPException(
                 status_code=404,
                 detail="Conversation not found.",
@@ -274,11 +361,11 @@ def chat(request: ChatRequest):
 
         # -------------------------------------------------
         # Get previous conversation history
-        # IMPORTANT:
-        # Get history BEFORE adding current user message.
         # -------------------------------------------------
 
-        print("CHAT STEP 2: loading recent history")
+        print(
+            "CHAT STEP 2: loading recent history"
+        )
 
         history = get_recent_messages(
             conversation_id,
@@ -289,7 +376,8 @@ def chat(request: ChatRequest):
             history = []
 
         print(
-            f"CHAT: loaded {len(history)} previous messages"
+            f"CHAT: loaded "
+            f"{len(history)} previous messages"
         )
 
         # -------------------------------------------------
@@ -298,26 +386,41 @@ def chat(request: ChatRequest):
 
         summary = ""
 
-        if isinstance(conversation, dict):
+        if isinstance(
+            conversation,
+            dict,
+        ):
+
             summary = conversation.get(
                 "summary",
                 "",
             ) or ""
+
         else:
+
             try:
-                summary = conversation["summary"] or ""
+
+                summary = (
+                    conversation["summary"]
+                    or ""
+                )
+
             except Exception:
+
                 summary = ""
 
         print(
-            f"CHAT: summary length = {len(summary)}"
+            f"CHAT: summary length = "
+            f"{len(summary)}"
         )
 
         # -------------------------------------------------
         # Save current user message
         # -------------------------------------------------
 
-        print("CHAT STEP 3: saving user message")
+        print(
+            "CHAT STEP 3: saving user message"
+        )
 
         add_message(
             conversation_id=conversation_id,
@@ -329,7 +432,9 @@ def chat(request: ChatRequest):
         # Semantic search
         # -------------------------------------------------
 
-        print("CHAT STEP 4: semantic search")
+        print(
+            "CHAT STEP 4: semantic search"
+        )
 
         top_k = request.top_k or TOP_K
 
@@ -350,7 +455,9 @@ def chat(request: ChatRequest):
         # Generate AI answer
         # -------------------------------------------------
 
-        print("CHAT STEP 6: generating AI answer")
+        print(
+            "CHAT STEP 6: generating AI answer"
+        )
 
         answer = generate_chat_answer(
             query=query,
@@ -359,9 +466,12 @@ def chat(request: ChatRequest):
             results=results,
         )
 
-        print("CHAT STEP 7: AI answer generated")
+        print(
+            "CHAT STEP 7: AI answer generated"
+        )
 
         if not answer:
+
             answer = (
                 "I could not generate an answer "
                 "for that question."
@@ -371,7 +481,9 @@ def chat(request: ChatRequest):
         # Save assistant response
         # -------------------------------------------------
 
-        print("CHAT STEP 8: saving assistant message")
+        print(
+            "CHAT STEP 8: saving assistant message"
+        )
 
         add_message(
             conversation_id=conversation_id,
@@ -383,14 +495,17 @@ def chat(request: ChatRequest):
         # Count messages
         # -------------------------------------------------
 
-        print("CHAT STEP 9: counting messages")
+        print(
+            "CHAT STEP 9: counting messages"
+        )
 
         message_count = count_messages(
             conversation_id
         )
 
         print(
-            f"CHAT: message count = {message_count}"
+            f"CHAT: message count = "
+            f"{message_count}"
         )
 
         # -------------------------------------------------
@@ -398,32 +513,42 @@ def chat(request: ChatRequest):
         # -------------------------------------------------
 
         if message_count >= 20:
+
             print(
                 "CHAT STEP 10: summarizing conversation"
             )
 
             try:
+
                 all_messages = get_recent_messages(
                     conversation_id,
                     limit=20,
                 )
 
+                # Existing summary is passed to the
+                # summarization function.
                 new_summary = summarize_conversation(
-                    all_messages
+                    summary,
+                    all_messages,
                 )
 
                 if new_summary:
+
                     update_conversation_summary(
                         conversation_id,
                         new_summary,
                     )
 
                     print(
-                        "CHAT: conversation summary updated"
+                        "CHAT: conversation "
+                        "summary updated"
                     )
 
             except Exception as summary_error:
-                # Do not fail the entire chat if summary fails.
+
+                # Do not fail the entire chat
+                # if summary generation fails.
+
                 print(
                     "SUMMARY ERROR:",
                     repr(summary_error),
@@ -433,7 +558,9 @@ def chat(request: ChatRequest):
         # Return response
         # -------------------------------------------------
 
-        print("CHAT STEP 11: returning response")
+        print(
+            "CHAT STEP 11: returning response"
+        )
 
         return {
             "success": True,
@@ -446,11 +573,29 @@ def chat(request: ChatRequest):
         raise
 
     except Exception as exc:
-        print("\n!!!!!!!!!!!!!!!! CHAT ERROR !!!!!!!!!!!!!!!!")
-        print("ERROR TYPE:", type(exc).__name__)
-        print("ERROR:", str(exc))
-        print("ERROR REPR:", repr(exc))
-        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+
+        print(
+            "\n!!!!!!!!!!!!!!!! CHAT ERROR !!!!!!!!!!!!!!!!"
+        )
+
+        print(
+            "ERROR TYPE:",
+            type(exc).__name__,
+        )
+
+        print(
+            "ERROR:",
+            str(exc),
+        )
+
+        print(
+            "ERROR REPR:",
+            repr(exc),
+        )
+
+        print(
+            "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+        )
 
         raise HTTPException(
             status_code=500,
@@ -461,36 +606,57 @@ def chat(request: ChatRequest):
         )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Simulator Chat
-# ---------------------------------------------------------
+# =========================================================
 
-@app.post("/simulator/chat", response_model=SimulatorTurnResponse)
-def simulator_chat(request: SimulatorTurnRequest):
+@app.post(
+    "/simulator/chat",
+    response_model=SimulatorTurnResponse,
+)
+def simulator_chat(
+    request: SimulatorTurnRequest
+):
+
     try:
-        print("\n================ SIMULATOR CHAT REQUEST ================")
+
+        print(
+            "\n================ SIMULATOR CHAT REQUEST ================"
+        )
 
         # -------------------------------------------------
         # Create conversation if needed
         # -------------------------------------------------
 
-        conversation_id = request.conversation_id
+        conversation_id = (
+            request.conversation_id
+        )
 
         if conversation_id is None:
-            print("SIMULATOR: creating new conversation")
-            conversation_id = create_conversation("Simulator Session")
-            print(f"SIMULATOR: created conversation {conversation_id}")
-            
-            # Initial state message if provided by the user (optional, could just rely on first turn)
-            # Usually the agent starts, or the customer starts.
-            # In our case, the agent responds to an implicitly empty history or ongoing.
+
+            print(
+                "SIMULATOR: creating new conversation"
+            )
+
+            conversation_id = create_conversation(
+                "Simulator Session"
+            )
+
+            print(
+                f"SIMULATOR: created conversation "
+                f"{conversation_id}"
+            )
 
         # -------------------------------------------------
         # Get existing conversation
         # -------------------------------------------------
 
-        conversation = get_conversation(conversation_id)
+        conversation = get_conversation(
+            conversation_id
+        )
+
         if conversation is None:
+
             raise HTTPException(
                 status_code=404,
                 detail="Conversation not found.",
@@ -501,10 +667,14 @@ def simulator_chat(request: SimulatorTurnRequest):
         # -------------------------------------------------
 
         if request.agent_message.strip():
-            print("SIMULATOR: saving agent message")
+
+            print(
+                "SIMULATOR: saving agent message"
+            )
+
             add_message(
                 conversation_id=conversation_id,
-                role="assistant", # Using 'assistant' for agent to align with existing roles
+                role="assistant",
                 content=request.agent_message.strip(),
             )
 
@@ -512,7 +682,11 @@ def simulator_chat(request: SimulatorTurnRequest):
         # Get previous history
         # -------------------------------------------------
 
-        history = get_recent_messages(conversation_id, limit=20)
+        history = get_recent_messages(
+            conversation_id,
+            limit=20,
+        )
+
         if history is None:
             history = []
 
@@ -520,47 +694,81 @@ def simulator_chat(request: SimulatorTurnRequest):
         # Generate Simulated Customer Response
         # -------------------------------------------------
 
-        print("SIMULATOR: generating customer turn")
+        print(
+            "SIMULATOR: generating customer turn"
+        )
+
         result = generate_customer_turn(
-            agent_message=request.agent_message.strip(),
+            agent_message=(
+                request.agent_message.strip()
+            ),
             history=history,
             config=request.config,
         )
 
-        customer_message = result.get("customer_message", "Error generating response.")
-        current_emotion = result.get("current_emotion", request.config.current_emotion)
-        patience_level = result.get("patience_level", request.config.patience_level)
+        customer_message = result.get(
+            "customer_message",
+            "Error generating response.",
+        )
+
+        current_emotion = result.get(
+            "current_emotion",
+            request.config.current_emotion,
+        )
+
+        patience_level = result.get(
+            "patience_level",
+            request.config.patience_level,
+        )
 
         # -------------------------------------------------
         # Save Customer's message
         # -------------------------------------------------
-        print("SIMULATOR: saving customer message")
+
+        print(
+            "SIMULATOR: saving customer message"
+        )
+
         add_message(
             conversation_id=conversation_id,
-            role="user", # Using 'user' for customer
+            role="user",
             content=customer_message,
         )
 
         # -------------------------------------------------
-        # Real-time Intent & Sentiment Analysis (Task 4)
+        # Real-time Intent & Sentiment Analysis
         # -------------------------------------------------
-        print("SIMULATOR: running intent & sentiment analysis")
+
+        print(
+            "SIMULATOR: running intent "
+            "& sentiment analysis"
+        )
+
         analysis = analyze_customer_message(
             message=customer_message,
             history=history,
         )
 
         # -------------------------------------------------
-        # Knowledge Recommendations (Milestone 2)
+        # Knowledge Recommendations
         # -------------------------------------------------
-        print("SIMULATOR: retrieving knowledge recommendations")
+
+        print(
+            "SIMULATOR: retrieving "
+            "knowledge recommendations"
+        )
+
         knowledge_recs = recommend_knowledge(
             message=customer_message,
             history=history,
             top_k=4,
         )
 
-        print("SIMULATOR: returning response with analysis and knowledge recommendations")
+        print(
+            "SIMULATOR: returning response "
+            "with analysis and knowledge recommendations"
+        )
+
         return SimulatorTurnResponse(
             success=True,
             conversation_id=conversation_id,
@@ -573,29 +781,66 @@ def simulator_chat(request: SimulatorTurnRequest):
 
     except HTTPException:
         raise
+
     except Exception as exc:
-        print("\n!!!!!!!!!!!!!!!! SIMULATOR ERROR !!!!!!!!!!!!!!!!")
-        print("ERROR TYPE:", type(exc).__name__)
-        print("ERROR:", str(exc))
-        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+
+        print(
+            "\n!!!!!!!!!!!!!!!! SIMULATOR ERROR !!!!!!!!!!!!!!!!"
+        )
+
+        print(
+            "ERROR TYPE:",
+            type(exc).__name__,
+        )
+
+        print(
+            "ERROR:",
+            str(exc),
+        )
+
+        print(
+            "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+        )
 
         raise HTTPException(
             status_code=500,
-            detail=f"Simulation failed: {type(exc).__name__}: {exc}"
+            detail=(
+                f"Simulation failed: "
+                f"{type(exc).__name__}: {exc}"
+            ),
         )
 
 
-# ---------------------------------------------------------
-# Intent & Sentiment Analysis Endpoint (Task 4)
-# ---------------------------------------------------------
+# =========================================================
+# Intent & Sentiment Analysis Endpoint
+# =========================================================
 
-@app.post("/analysis/intent-sentiment", response_model=AnalyzeMessageResponse)
-def analyze_intent_and_sentiment(request: AnalyzeMessageRequest):
+@app.post(
+    "/analysis/intent-sentiment",
+    response_model=AnalyzeMessageResponse,
+)
+def analyze_intent_and_sentiment(
+    request: AnalyzeMessageRequest
+):
+
     try:
-        print("\n================ INTENT & SENTIMENT REQUEST ================")
+
+        print(
+            "\n================ INTENT & SENTIMENT REQUEST ================"
+        )
+
         history = request.history or []
-        if request.conversation_id is not None and not history:
-            db_history = get_recent_messages(request.conversation_id, limit=10)
+
+        if (
+            request.conversation_id is not None
+            and not history
+        ):
+
+            db_history = get_recent_messages(
+                request.conversation_id,
+                limit=10,
+            )
+
             if db_history:
                 history = db_history
 
@@ -608,27 +853,56 @@ def analyze_intent_and_sentiment(request: AnalyzeMessageRequest):
             success=True,
             analysis=analysis,
         )
+
     except HTTPException:
         raise
+
     except Exception as exc:
-        print("ANALYSIS ERROR:", repr(exc))
+
+        print(
+            "ANALYSIS ERROR:",
+            repr(exc),
+        )
+
         raise HTTPException(
             status_code=500,
-            detail=f"Analysis failed: {type(exc).__name__}: {exc}"
+            detail=(
+                f"Analysis failed: "
+                f"{type(exc).__name__}: {exc}"
+            ),
         )
 
 
-# ---------------------------------------------------------
-# Knowledge Recommendation Endpoint (Milestone 2)
-# ---------------------------------------------------------
+# =========================================================
+# Knowledge Recommendation Endpoint
+# =========================================================
 
-@app.post("/recommendations/knowledge", response_model=KnowledgeRecommendationResponse)
-def get_knowledge_recommendations(request: KnowledgeRecommendationRequest):
+@app.post(
+    "/recommendations/knowledge",
+    response_model=KnowledgeRecommendationResponse,
+)
+def get_knowledge_recommendations(
+    request: KnowledgeRecommendationRequest
+):
+
     try:
-        print("\n================ KNOWLEDGE RECOMMENDATION REQUEST ================")
+
+        print(
+            "\n================ KNOWLEDGE RECOMMENDATION REQUEST ================"
+        )
+
         history = request.history or []
-        if request.conversation_id is not None and not history:
-            db_history = get_recent_messages(request.conversation_id, limit=10)
+
+        if (
+            request.conversation_id is not None
+            and not history
+        ):
+
+            db_history = get_recent_messages(
+                request.conversation_id,
+                limit=10,
+            )
+
             if db_history:
                 history = db_history
 
@@ -644,11 +918,126 @@ def get_knowledge_recommendations(request: KnowledgeRecommendationRequest):
             recommendations=recs,
             count=len(recs),
         )
+
     except HTTPException:
         raise
+
     except Exception as exc:
-        print("KNOWLEDGE RECOMMENDATION ERROR:", repr(exc))
+
+        print(
+            "KNOWLEDGE RECOMMENDATION ERROR:",
+            repr(exc),
+        )
+
         raise HTTPException(
             status_code=500,
-            detail=f"Recommendation retrieval failed: {type(exc).__name__}: {exc}"
+            detail=(
+                f"Recommendation retrieval failed: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
+
+
+# =========================================================
+# Task 8 - Post-Interaction Summary
+# =========================================================
+
+@app.get(
+    "/task8/post-interaction-summary/{conversation_id}"
+)
+def get_post_interaction_summary(
+    conversation_id: int
+):
+
+    try:
+
+        print(
+            "\n================ TASK 8 POST-INTERACTION SUMMARY ================"
+        )
+
+        # -------------------------------------------------
+        # Build Task 8 report
+        # -------------------------------------------------
+
+        report = build_post_interaction_summary(
+            conversation_id=conversation_id
+        )
+
+        print(
+            "TASK 8: Summary generated successfully"
+        )
+
+        return report
+
+    except ValueError as exc:
+
+        print(
+            "TASK 8 SUMMARY ERROR:",
+            repr(exc),
+        )
+
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+
+        print(
+            "TASK 8 SUMMARY ERROR:",
+            repr(exc),
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Post-interaction summary failed: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
+
+
+# =========================================================
+# Task 8 - Performance Analytics
+# =========================================================
+
+@app.get(
+    "/task8/performance-analytics"
+)
+def get_performance_analytics():
+
+    try:
+
+        print(
+            "\n================ TASK 8 PERFORMANCE ANALYTICS ================"
+        )
+
+        # -------------------------------------------------
+        # Build Task 8 analytics
+        # -------------------------------------------------
+
+        analytics = build_performance_analytics()
+
+        print(
+            "TASK 8: Performance analytics generated successfully"
+        )
+
+        return analytics
+
+    except Exception as exc:
+
+        print(
+            "TASK 8 PERFORMANCE ANALYTICS ERROR:",
+            repr(exc),
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Performance analytics failed: "
+                f"{type(exc).__name__}: {exc}"
+            ),
         )
